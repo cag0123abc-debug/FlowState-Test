@@ -43,7 +43,7 @@ loadBtn.onclick = async () => {
   log("Downloading and loading the model. This can take a few minutes on first run...");
   try {
     const device = navigator.gpu ? "webgpu" : "wasm";
-    transcriber = await pipeline("automatic-speech-recognition", "Xenova/whisper-medium.en", {
+    transcriber = await pipeline("automatic-speech-recognition", "Xenova/whisper-small.en", {
       device,
       progress_callback: (p) => {
         if (p.status === "progress") log(`Downloading ${p.file}: ${Math.round(p.progress)}%`);
