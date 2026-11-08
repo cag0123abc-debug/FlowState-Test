@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FlowState Transcription Test</title>
+<style>
+body{font-family:system-ui,sans-serif;margin:20px;max-width:700px;line-height:1.4}
+button{font-size:18px;padding:12px 18px;margin:6px 4px;border-radius:10px;border:2px solid #3d5ba9;background:#fff;cursor:pointer}
+button:disabled{opacity:.5}
+#status{padding:12px;background:#f0f4ff;border-radius:10px;margin:12px 0;white-space:pre-wrap}
+#out{padding:12px;background:#fafafa;border-radius:10px;min-height:80px;white-space:pre-wrap;border:1px solid #ddd}
+</style>
+</head>
+<body>
+<h2>FlowState: on-device transcription test</h2>
+<p>Step 1: Load the speech model (one-time download, needs Wi-Fi).</p>
+<button id="loadBtn">Load model</button>
+<p>Step 2: Record a few sentences, then stop.</p>
+<button id="recBtn" disabled>Start recording</button>
+<button id="stopBtn" disabled>Stop and transcribe</button>
+<div id="status">Not started.</div>
+<h3>Transcript</h3>
+<div id="out"></div>
+
+<script type="module">
+import { pipeline, env } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.2/dist/transformers.min.js";
+
+env.allowLocalModels = false;
+const statusEl = document.getElementById("status");
+const outEl = document.getElementById("out");
+const loadBtn = document.getElementById("loadBtn");
+const recBtn = document.getElementById("recBtn");
+const stopBtn = document.getElementById("stopBtn");
+const log = (m) => statusEl.textContent = m;
+
+let transcriber = null;
+let recorder = null;
+let chunks = [];
+
+loadBtn.onclick = async () => {
+  loadBtn.disabled = true;
+  log("Downloading and loading the model. This can take a few minutes on first run...");
+  try {
+    const device = navigator.gpu ? "webgpu" : "wasm";
+    transcriber = await pipeline("automatic-speech-recognition", "Xenova/whisper-tiny.en", {
+      device,
+      progress_callback: (p) => {
+        if (p.status === "progress") log(`Downloading ${p.file}: ${Math.round(p.progress)}%`);
+      }
+    });
+    log(`Model ready. Running on: ${device.toUpperCase()}. Now press Start recording.`);
+    recBtn.disabled = false;
+  } catch (err) {
+    log("Model failed to load: " + err.message + "\nTell me this message.");
+    loadBtn.disabled = false;
+  }
+};
+
+recBtn.onclick = async () => {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    chunks = [];
+    recorder = new MediaRecorder(stream);
+    recorder.ondataavailable = (e) => chunks.push(e.data);
+    recorder.start();
+    recBtn.disabled = true;
+    stopBtn.disabled = false;
+    log("Recording... speak a few sentences, then press Stop and transcribe.");
+  } catch (err) {
+    log("Microphone error: " + err.message + "\nCheck that Chrome has microphone permission.");
+  }
+};
+
+stopBtn.onclick = () => {
+  stopBtn.disabled = true;
+  recorder.onstop = async () => {
+    recorder.stream.getTracks().forEach(t => t.stop());
+    log("Transcribing...");
+    try {
+      const blob = new Blob(chunks, { type: recorder.mimeType });
+      const buf = await blob.arrayBuffer();
+      const ctx = new AudioContext({ sampleRate: 16000 });
+      const audio = await ctx.decodeAudioData(buf);
+      const samples = audio.getChannelData(0);
+      const result = await transcriber(samples);
+      outEl.textContent = result.text.trim() || "(no speech detected)";
+      log("Done. Check the transcript below. Tell me how long it took and whether the words match what you said.");
+    } catch (err) {
+      log("Transcription failed: " + err.message + "\nTell me this message.");
+    }
+    recBtn.disabled = false;
+  };
+  recorder.stop();
+};
+</script>
+</body>
+</html>
